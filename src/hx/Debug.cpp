@@ -148,6 +148,22 @@ void hxSignalFunction(int)
 
 #endif
 
+#ifdef HXCPP_STACK_LIMIT
+class hxSleException : public hx::Object
+{
+   public:
+      inline void *operator new( size_t inSize )
+      {
+         return hx::InternalCreateConstBuffer(0, (int)inSize);
+      }
+      void operator delete ( void* ) {}
+
+      String __ToString() const { return HX_CSTRING("Stack Limit Exceeded"); }
+
+      int __GetType() const { return vtObject; }
+};
+#endif
+
 
 String FormatStack(const char *file, const char *clazz, const char *func, int line, bool display)
 {
@@ -238,6 +254,17 @@ StackContext::~StackContext()
    #ifdef HXCPP_SCRIPTABLE
    delete [] stack;
    #endif
+}
+
+void StackContext::StackOverflow()
+{
+   static bool alreadyThrew = false;
+   if (!alreadyThrew)
+   {
+      alreadyThrew = true;
+      CriticalError(HX_CSTRING("Stack Limit Exceeded"), true);
+      //hx::Throw(new hxSleException());
+   }
 }
 
 void StackContext::onThreadAttach()

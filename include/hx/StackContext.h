@@ -12,6 +12,41 @@
 // Set:
 // HXCPP_STACK_LINE if stack line numbers need to be tracked
 // HXCPP_STACK_TRACE if stack frames need to be tracked
+// HXCPP_STACK_LIMIT to crash on too much depth (usually result of infinite recursion)
+
+#if HXCPP_STACK_LIMIT == -1
+#ifdef HX_LINUX
+#include <sys/resource.h>
+#include <unistd.h>
+#endif
+
+inline int getSystemStackLimitFrames()
+{
+   static int guessedLimit = -1;
+
+#ifdef HX_LINUX
+   if (guessedLimit == -1)
+   {
+      constexpr int avgFrameSize = 128;
+      constexpr int safetyMargin = 64;
+      struct rlimit rl;
+      if (getrlimit(RLIMIT_STACK, &rl) == 0)
+      {
+         guessedLimit = (rl.rlim_cur >> 2) / avgFrameSize;
+      }
+   }
+#else
+   // TODO: Implement on other targets
+   guessedLimit = 10000;
+#endif
+
+   return guessedLimit;
+}
+
+#undef HXCPP_STACK_LIMIT
+#define HXCPP_STACK_LIMIT getSystemStackLimitFrames()
+#endif
+
 
 // Keep track of lines - more accurate stack traces for exceptions, also
 // needed for the debugger
@@ -21,7 +56,7 @@
 
 // Do we need to keep a stack trace - for basic exception handelling, also needed for the debugger
 // At a minimum, you can track the functions calls and nothing else
-#if (defined(HXCPP_STACK_LINE) || defined(HXCPP_TELEMETRY) || defined(HXCPP_PROFILER) || defined(HXCPP_DEBUG)) && !defined(HXCPP_STACK_TRACE)
+#if (defined(HXCPP_STACK_LINE) || defined(HXCPP_TELEMETRY) || defined(HXCPP_PROFILER) || defined(HXCPP_DEBUG) || defined(HXCPP_STACK_LIMIT)) && !defined(HXCPP_STACK_TRACE)
    #define HXCPP_STACK_TRACE
 #endif
 
@@ -484,6 +519,10 @@ struct StackContext : public hx::ImmixAllocator
       #endif
 
       mIsUnwindingException = false;
+      #ifdef HXCPP_STACK_LIMIT
+      if (mStackFrames.size() + 1 >= HXCPP_STACK_LIMIT)
+         StackOverflow();
+      #endif
       mStackFrames.push(inFrame);
 
       #ifdef HXCPP_DEBUGGER
@@ -491,6 +530,8 @@ struct StackContext : public hx::ImmixAllocator
          tracePosition();
       #endif
    }
+
+   static void StackOverflow();
 
    inline void popFrame(StackFrame *inFrame)
    {
